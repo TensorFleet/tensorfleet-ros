@@ -1,0 +1,49 @@
+{
+  "name": "tensorfleet-ros",
+  "version": "1.0.0",
+  "description": "ROS2 bridge and networking utilities for TensorFleet",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TensorFleet/vscode-tensorfleet.git"
+  },
+  "keywords": ["ros", "ros2", "foxglove", "websocket", "bridge"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@lichtblick/tsconfig": "^1.0.2",
+    "typescript": "^5.5.3"
+  },
+  "dependencies": {
+    "tensorfleet-util": "workspace:*"
+  },
+  "peerDependencies": {
+    "@foxglove/ws-protocol": "^0.8.0",
+    "@lichtblick/ros2idl-parser": "^1.0.0",
+    "@lichtblick/rosmsg": "^1.0.0",
+    "@lichtblick/rosmsg-msgs-common": "^1.0.1",
+    "@lichtblick/rosmsg-serialization": "^1.0.0",
+    "@lichtblick/rosmsg2-serialization": "^1.0.0",
+    "@lichtblick/suite-base": "workspace:*"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
