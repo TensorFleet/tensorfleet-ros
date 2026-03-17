@@ -2,7 +2,9 @@
   "extends": "@lichtblick/tsconfig/base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "lib": ["es2022", "dom", "dom.iterable", "webworker"],
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules"]
