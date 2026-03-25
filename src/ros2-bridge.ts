@@ -44,7 +44,7 @@ export class ROS2Bridge {
   // track discovered topics from the bridge
   private discoveredTopics: Map<string, string> = new Map(); // topic -> type
 
-  private reconnectTimeout: number | null = null;
+  private reconnectTimeout: any = null;
 
   // Topics that should be (re)published once on connect (e.g., latched configs).
   private setupPublishes: Array<{ topic: string; type: string; message: any }> = [];
@@ -62,14 +62,14 @@ export class ROS2Bridge {
 
   // Available topics change notifications
   private availableTopicsListeners = new Set<(topics: Subscription[]) => void>();
-  private topicsWatchTimer: number | null = null;
+  private topicsWatchTimer: any = null;
   private _lastTopicsSig: string | null = null;
 
   // Stored connection settings (copy, not reference)
   private connectionSettings: ConnectionSettings | null = null;
 
   // Timer for checking settings changes
-  private settingsCheckTimer: number | null = null;
+  private settingsCheckTimer: any = null;
 
   // Server info readiness promise
   private serverInfoReady: Promise<void> | null = null;
@@ -200,7 +200,7 @@ export class ROS2Bridge {
       // eslint-disable-next-line no-console
       console.log("[ROS2Bridge] Foxglove connection closed");
       this._stopTopicsWatcher();
-      this.reconnectTimeout = window.setTimeout(() => {
+      this.reconnectTimeout = setTimeout(() => {
         // eslint-disable-next-line no-console
         console.log("[ROS2Bridge] Attempting to reconnect...");
         this.connect();
@@ -889,7 +889,7 @@ export class ROS2Bridge {
       }
     };
     if (this.topicsWatchTimer) clearInterval(this.topicsWatchTimer);
-    this.topicsWatchTimer = window.setInterval(tick, intervalMs);
+    this.topicsWatchTimer = setInterval(tick, intervalMs);
     tick(); // initial fire
   }
 
@@ -903,7 +903,7 @@ export class ROS2Bridge {
 
   private _startSettingsWatcher() {
     if (this.settingsCheckTimer) clearInterval(this.settingsCheckTimer);
-    this.settingsCheckTimer = window.setInterval(() => {
+    this.settingsCheckTimer = setInterval(() => {
       const currentSettings: ConnectionSettings = {
         useProxy: (window as any).TENSORFLEET_USE_PROXY || '',
         proxyUrl: (window as any).TENSORFLEET_PROXY_URL || '',
@@ -927,4 +927,16 @@ export class ROS2Bridge {
 export const ros2Bridge: ROS2BridgeApi = new ROS2Bridge();
 
 // Auto-connect on load
-(ros2Bridge as any).connect();
+if (typeof window !== 'undefined') {
+  (ros2Bridge as any).connect();
+} else {
+  // Wait for window to be defined before connecting
+  const checkWindowAndConnect = () => {
+    if (typeof window !== 'undefined') {
+      (ros2Bridge as any).connect();
+    } else {
+      setTimeout(checkWindowAndConnect, 100);
+    }
+  };
+  checkWindowAndConnect();
+}
