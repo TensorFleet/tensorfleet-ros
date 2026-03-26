@@ -13,6 +13,10 @@ import { FoxgloveWsClient } from "./foxglove-networking";
 import { ROS_PORTS } from "./ws-proxy-client";
 import * as RosTypes from "tensorfleet-util/ros/ros-types";
 import { ROS2BridgeApi } from "tensorfleet-util/ros/ros-bridge-api";
+import { TensorfleetLogger } from "tensorfleet-util/logger";
+
+// Create logger instance for ROS package
+const logger = new TensorfleetLogger('ROS');
 
 // (optional but nice) local type for the rosapi response
 type RosapiNodesResponse = { nodes: string[] };
@@ -81,7 +85,7 @@ export class ROS2Bridge {
   }
 
   connect(_mode: ConnectionMode = "foxglove", targetPort?: number, settings?: ConnectionSettings) {
-    console.log('ROS2Bridge: Starting connection process...');
+    logger.debug('Starting connection process...');
     // Reset server info readiness for new connection
     this.serverInfoReady = new Promise<void>((resolve) => {
       this.serverInfoResolver = resolve;
@@ -106,8 +110,7 @@ export class ROS2Bridge {
     };
 
     if (!proxyUrl && !vmManagerUrl) {
-      // eslint-disable-next-line no-console
-      console.error("[ROS2Bridge] Missing proxy URL for vm-manager WebSocket proxy. Expected window.TENSORFLEET_PROXY_URL or window.TENSORFLEET_VM_MANAGER_URL to be set in the webview HTML.", {
+      logger.error("Missing proxy URL for vm-manager WebSocket proxy. Expected window.TENSORFLEET_PROXY_URL or window.TENSORFLEET_VM_MANAGER_URL to be set in the webview HTML.", {
         proxyUrl,
         vmManagerUrl,
       });
@@ -123,8 +126,7 @@ export class ROS2Bridge {
     }
 
     const tokenPreview = typeof token === "string" ? `${token.slice(0, 8)}…` : undefined;
-    // eslint-disable-next-line no-console
-    console.log("[ROS2Bridge] Connecting via vm-manager proxy", {
+    logger.debug("Connecting via vm-manager proxy", {
       proxyUrl: proxyUrl ?? null,
       vmManagerUrl: vmManagerUrl ?? null,
       nodeId,
@@ -152,8 +154,7 @@ export class ROS2Bridge {
 
     // Startup service calls will only be sent once all of them are available.
     // (Actual availability is handled inside FoxgloveWsClient.)
-    // eslint-disable-next-line no-console
-    console.log("[ROS2Bridge] Forwarding setup service calls:", this.setupServiceCalls);
+    logger.debug("Forwarding setup service calls:", this.setupServiceCalls);
     this.setupServiceCalls.forEach(({ name, request }) =>
       this.client?.registerSetupServiceCall({
         serviceName: name,
@@ -161,8 +162,7 @@ export class ROS2Bridge {
       }),
     );
 
-    // eslint-disable-next-line no-console
-    console.log("[ROS2Bridge] Forwarding setup ros params:", this.setupROSParams);
+    logger.debug("Forwarding setup ros params:", this.setupROSParams);
     this.setupROSParams.forEach(({ name, value }) =>
       this.client?.registerSetupParameterSet(name, value),
     );
@@ -177,48 +177,45 @@ export class ROS2Bridge {
 
     // Print all ROS parameters after server capabilities are received
     this.client.onServerInfo = async () => {
-      console.log('ROS2Bridge: onServerInfo callback fired - server capabilities received');
+      logger.debug('onServerInfo callback fired - server capabilities received');
       // Mark server info as ready
       this.serverInfoResolver?.();
-      console.log('ROS2Bridge: serverInfoReady promise resolved');
+      logger.debug('serverInfoReady promise resolved');
 
       if (!this.client) return;
       try {
         await this.client.waitForService("/rosapi/nodes");
-        console.log("[Tensorfleet] All nodes :", await this.listNodes());
+        logger.debug("[Tensorfleet] All nodes :", await this.listNodes());
       } catch (error) {
-        console.warn("[Tensorfleet] Failed to get nodes (service not available):", error);
+        logger.warn("[Tensorfleet] Failed to get nodes (service not available):", error);
       }
       try {
-        console.log("[Tensorfleet] All params :", await this.getAllROSParameters());
+        logger.debug("[Tensorfleet] All params :", await this.getAllROSParameters());
       } catch (error) {
-        console.warn("[Tensorfleet] Failed to get params:", error);
+        logger.warn("[Tensorfleet] Failed to get params:", error);
       }
     };
 
     this.client.onClose = () => {
-      // eslint-disable-next-line no-console
-      console.log("[ROS2Bridge] Foxglove connection closed");
+      logger.debug("[ROS2Bridge] Foxglove connection closed");
       this._stopTopicsWatcher();
       this.reconnectTimeout = setTimeout(() => {
-        // eslint-disable-next-line no-console
-        console.log("[ROS2Bridge] Attempting to reconnect...");
+        logger.debug("[ROS2Bridge] Attempting to reconnect...");
         this.connect();
       }, 3000);
     };
 
     this.client.onError = (err) => {
-      // eslint-disable-next-line no-console
-      console.error("[ROS2Bridge] Foxglove client error", err);
+      logger.error("[ROS2Bridge] Foxglove client error", err);
     };
 
     this.client.onNewTopic = (topic, type) => {
-      console.log("new Foxglove topic:", topic, "type:", type);
+      logger.debug("new Foxglove topic:", topic, "type:", type);
       this.discoveredTopics.set(topic, type);
     };
 
     this.client.onNewTopic = (topic, type) => {
-      console.log("new Foxglove topic:", topic, "type:", type);
+      logger.debug("new Foxglove topic:", topic, "type:", type);
       this.discoveredTopics.set(topic, type);
     };
 
@@ -261,8 +258,7 @@ export class ROS2Bridge {
       this.connectionSettings.targetPort !== settings.targetPort;
 
     if (settingsChanged) {
-      // eslint-disable-next-line no-console
-      console.log("[ROS2Bridge] Connection settings changed, reconnecting...");
+      logger.debug("[ROS2Bridge] Connection settings changed, reconnecting...");
       this.disconnect();
       this.connect("foxglove", undefined, settings);
     }
@@ -282,8 +278,7 @@ export class ROS2Bridge {
     set.add(handler);
 
     if (!this.client || !this.client.isConnected()) {
-      // eslint-disable-next-line no-console
-      console.warn("[ROS2Bridge] Not connected, queueing subscription:", { topic, type });
+      logger.warn("[ROS2Bridge] Not connected, queueing subscription:", { topic, type });
       return () => {
         this.unsubscribe(topic, handler);
       };
@@ -315,8 +310,7 @@ export class ROS2Bridge {
   /** Generic topic publish. Uses exact ROS 2 schemaName for serialization. */
   publish(topic: string, messageType: string, message: any) {
     if (!this.client) {
-      // eslint-disable-next-line no-console
-      console.warn("[ROS2Bridge] publish() ignored: Foxglove client not ready");
+      logger.warn("[ROS2Bridge] publish() ignored: Foxglove client not ready");
       return;
     }
     this.client.publish(topic, messageType, message);
@@ -354,12 +348,12 @@ export class ROS2Bridge {
 
   /** Fetch all params (Foxglove bridge: empty list means all) */
   async getAllROSParameters(opts?: { timeoutMs?: number }): Promise<Record<string, unknown>> {
-    console.log('ROS2Bridge: getAllROSParameters called');
+    logger.debug('ROS2Bridge: getAllROSParameters called');
     if (!this.serverInfoReady) throw new Error("getAllROSParameters() before connect");
 
     // Add timeout to prevent infinite hanging when connection fails
     const timeoutMs = opts?.timeoutMs ?? 15000; // 15 second default timeout
-    console.log('ROS2Bridge: waiting for serverInfoReady with timeout...', timeoutMs, 'ms');
+    logger.debug('ROS2Bridge: waiting for serverInfoReady with timeout...', timeoutMs, 'ms');
 
     try {
       await Promise.race([
@@ -368,20 +362,20 @@ export class ROS2Bridge {
           setTimeout(() => reject(new Error(`getAllROSParameters timeout after ${timeoutMs}ms - WebSocket connection failed`)), timeoutMs)
         )
       ]);
-      console.log('ROS2Bridge: serverInfoReady resolved');
+      logger.debug('ROS2Bridge: serverInfoReady resolved');
     } catch (timeoutError) {
-      console.error('ROS2Bridge: serverInfoReady timeout - connection failed');
+      logger.error('ROS2Bridge: serverInfoReady timeout - connection failed');
       throw timeoutError;
     }
 
     if (!this.client) throw new Error("getAllROSParameters() before connect");
     if (!this.client.isConnected()) throw new Error("getAllROSParameters() while disconnected");
-    console.log('ROS2Bridge: calling client.getAllParameters...');
+    logger.debug('ROS2Bridge: calling client.getAllParameters...');
     const map = await this.client.getAllParameters(opts);
-    console.log('ROS2Bridge: client.getAllParameters returned', map.size, 'parameters');
+    logger.debug('ROS2Bridge: client.getAllParameters returned', map.size, 'parameters');
     const out: Record<string, unknown> = {};
     for (const [k, v] of map.entries()) out[k] = v;
-    console.log('ROS2Bridge: getAllROSParameters completed');
+    logger.debug('ROS2Bridge: getAllROSParameters completed');
     return out;
   }
 
@@ -554,8 +548,7 @@ export class ROS2Bridge {
     if (typeof step !== "number" || step < minStep) {
       const oldStep = step;
       step = minStep;
-      // eslint-disable-next-line no-console
-      console.warn(
+      logger.warn(
         "[ROS2Bridge] Normalizing RawImage step",
         { encoding: enc, width, height, oldStep, newStep: step },
       );
@@ -651,8 +644,7 @@ export class ROS2Bridge {
         };
         this.messageHandlers.get(topic)?.forEach((handler) => handler(imageMsg));
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error("[ROS2Bridge] Failed to convert raw image:", error);
+        logger.error("[ROS2Bridge] Failed to convert raw image:", error);
       }
     } else if (type === "sensor_msgs/msg/CompressedImage") {
       try {
@@ -671,8 +663,7 @@ export class ROS2Bridge {
           this.messageHandlers.get(topic)?.forEach((handler) => handler(imageMsg));
         });
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error("[ROS2Bridge] Failed to load compressed image:", error);
+        logger.error("[ROS2Bridge] Failed to load compressed image:", error);
       }
     } else {
       // Non-image (or RawImage) topics: forward patched { topic, type, msg } as-is
@@ -782,8 +773,7 @@ export class ROS2Bridge {
         break;
 
       default:
-        // eslint-disable-next-line no-console
-        console.warn(`[ROS2Bridge] Unsupported encoding: ${encoding}`);
+        logger.warn(`[ROS2Bridge] Unsupported encoding: ${encoding}`);
         // Fill with gray as fallback
         rgba.fill(128);
         for (let i = 3; i < rgba.length; i += 4) {
@@ -818,8 +808,7 @@ export class ROS2Bridge {
       callback(dataURI, img.width, img.height);
     };
     img.onerror = (error) => {
-      // eslint-disable-next-line no-console
-      console.error("[ROS2Bridge] Failed to load compressed image:", error);
+      logger.error("[ROS2Bridge] Failed to load compressed image:", error);
     };
     img.src = dataURI;
   }
@@ -856,8 +845,7 @@ export class ROS2Bridge {
     try {
       cb(this.getAvailableTopics());
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error("[ROS2Bridge] topicsChanged initial callback error:", e);
+      logger.error("[ROS2Bridge] topicsChanged initial callback error:", e);
     }
     return () => {
       this.availableTopicsListeners.delete(cb);
@@ -869,8 +857,7 @@ export class ROS2Bridge {
       try {
         fn(topics);
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error("[ROS2Bridge] topicsChanged listener error:", e);
+        logger.error("[ROS2Bridge] topicsChanged listener error:", e);
       }
     }
   }

@@ -8,6 +8,7 @@ import {
   ServiceCallResponse,
   Parameter,
 } from "@foxglove/ws-protocol";
+import { TensorfleetLogger } from "tensorfleet-util/logger";
 import { parseChannel } from "@lichtblick/mcap-support";
 import { MessageWriter as Ros2MessageWriter } from "@lichtblick/rosmsg2-serialization";
 import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosDatatypesToMessageDefinition";
@@ -123,6 +124,7 @@ export interface FoxgloveConnectionConfig {
 export class FoxgloveWsClient {
   private client: FoxgloveClient;
   private requestCounter: number = 0;
+  private logger: TensorfleetLogger;
 
   // Topics
   private channelsById = new Map<ChannelId, ResolvedChannel>();
@@ -194,6 +196,9 @@ export class FoxgloveWsClient {
    * Proxy mode: { useProxy: true, vmManagerUrl: "https://eu.vm.tensorfleet.net", token: "...", nodeId: "..." }
    */
   constructor(config: FoxgloveConnectionConfig | { url: string }) {
+    // Initialize logger
+    this.logger = new TensorfleetLogger('FoxgloveWsClient');
+
     // Normalize config to FoxgloveConnectionConfig
     this.connectionConfig = 'url' in config && !('useProxy' in config)
       ? { url: config.url }
@@ -210,11 +215,11 @@ export class FoxgloveWsClient {
 
       // Re-publish queued setup messages
       for (const cmd of this.setupCommands) {
-        try {
-          this.publish(cmd.topic, cmd.schemaName, cmd.msg);
-        } catch (err) {
-          console.error("[FoxgloveWsClient] Re-publish setup error:", err);
-        }
+      try {
+        this.publish(cmd.topic, cmd.schemaName, cmd.msg);
+      } catch (err) {
+        this.logger.error("Re-publish setup error:", err);
+      }
       }
 
       // Execute any queued setup service calls (will be retried after services advertise)
@@ -239,7 +244,7 @@ export class FoxgloveWsClient {
       this.serverCapabilities = Array.isArray(event.capabilities) ? event.capabilities : [];
 
       if (Array.isArray(event.capabilities)) {
-        console.log("[FoxgloveWsClient] Got server capabilities ", event.capabilities);
+        this.logger.debug("Got server capabilities", event.capabilities);
       }
 
       const maybeRosDistro = event.metadata?.["ROS_DISTRO"];
@@ -253,11 +258,11 @@ export class FoxgloveWsClient {
       // Parameters capability: fetch all params initially so we know types
       if (this.serverCapabilities.includes(ServerCapability.parameters)) {
         try {
-          console.log("[FoxgloveWsClient] requesting parameterValues");
+          this.logger.debug("requesting parameterValues");
           // Empty names list => request "all parameters" (Foxglove Bridge behavior)
           this.client.getParameters([], `${++this.requestCounter}`);
         } catch (err) {
-          console.warn("[FoxgloveWsClient] Failed to request initial parameters:", err);
+          this.logger.warn("Failed to request initial parameters:", err);
         }
       }
 
@@ -271,7 +276,7 @@ export class FoxgloveWsClient {
     this.client.on("advertise", (channels: FoxgloveChannel[]) => {
       for (const channel of channels) {
         if (channel.encoding !== "cdr") {
-          console.warn("[FoxgloveWsClient] Skipping non-CDR channel", channel.topic, "encoding:", channel.encoding);
+          this.logger.warn("Skipping non-CDR channel", channel.topic, "encoding:", channel.encoding);
           continue;
         }
 
@@ -282,7 +287,7 @@ export class FoxgloveWsClient {
         ) {
           schemaEncoding = channel.schemaEncoding ?? "ros2msg";
         } else {
-          console.warn("[FoxgloveWsClient] Unsupported schemaEncoding for CDR channel", channel.topic, channel.schemaEncoding);
+          this.logger.warn("Unsupported schemaEncoding for CDR channel", channel.topic, channel.schemaEncoding);
           continue;
         }
 
@@ -295,7 +300,7 @@ export class FoxgloveWsClient {
             schema: { name: channel.schemaName, encoding: schemaEncoding, data: schemaData },
           });
         } catch (err) {
-          console.error("[FoxgloveWsClient] Failed to parse channel schema for", channel.topic, err);
+          this.logger.error("Failed to parse channel schema for", channel.topic, err);
           continue;
         }
 
@@ -333,7 +338,7 @@ export class FoxgloveWsClient {
         const { topic, schemaName, encoding } = chanInfo.channel;
         this.onMessage?.({ topic, schemaName, encoding, payload: decoded });
       } catch (err) {
-        console.error("[FoxgloveWsClient] Failed to decode message on topic", chanInfo.channel.topic, err);
+        this.logger.error("Failed to decode message on topic", chanInfo.channel.topic, err);
       }
     });
 
@@ -350,7 +355,7 @@ export class FoxgloveWsClient {
           const reqEncoding = (service.request?.encoding ?? this.serviceEncoding) as "cdr";
           const resEncoding = (service.response?.encoding ?? this.serviceEncoding) as "cdr";
           if (reqEncoding !== "cdr" || resEncoding !== "cdr") {
-            console.warn("[FoxgloveWsClient] Skipping service (non-CDR):", service.name);
+            this.logger.warn("Skipping service (non-CDR):", service.name);
             continue;
           }
 
@@ -402,9 +407,9 @@ export class FoxgloveWsClient {
             this.serviceWaiters.delete(service.name);
           }
 
-          console.log(`[FoxgloveWsClient] added service ${service.name}:${service.type}`);
+          this.logger.debug(`added service ${service.name}:${service.type}`);
         } catch (err) {
-          console.error("[FoxgloveWsClient] Failed to parse service", service.name, err);
+          this.logger.error("Failed to parse service", service.name, err);
         }
       }
 
@@ -417,7 +422,7 @@ export class FoxgloveWsClient {
     this.client.on("serviceCallResponse", (resp: ServiceCallResponse) => {
       const cb = this.serviceCallbacks.get(resp.callId);
       if (!cb) {
-        console.warn("[FoxgloveWsClient] Unhandled serviceCallResponse", resp.callId);
+        this.logger.warn("Unhandled serviceCallResponse", resp.callId);
         return;
       }
 
@@ -430,19 +435,19 @@ export class FoxgloveWsClient {
             resp.data.byteLength,
           );
           const decoded = svc.parsedResponse.deserialize(bytes);
-          console.log(
-            `[FoxgloveWsClient] service call ${resp.callId} (${svc.service.name}) decoded response`,
+          this.logger.debug(
+            `service call ${resp.callId} (${svc.service.name}) decoded response`,
             decoded,
           );
         } catch (err) {
-          console.error(
-            `[FoxgloveWsClient] Failed to decode response for service call ${resp.callId} (${svc?.service.name})`,
-            err,
-          );
+        this.logger.error(
+          `Failed to decode response for service call ${resp.callId} (${svc?.service.name})`,
+          err,
+        );
         }
       } else {
-        console.log(
-          `[FoxgloveWsClient] service call ${resp.callId} (serviceId=${resp.serviceId}) got response (no decoder)`,
+        this.logger.debug(
+          `service call ${resp.callId} (serviceId=${resp.serviceId}) got response (no decoder)`,
           resp,
         );
       }
@@ -487,7 +492,7 @@ export class FoxgloveWsClient {
           try {
             fn(changed);
           } catch (e) {
-            console.warn("[FoxgloveWsClient] parameter listener error:", e);
+            this.logger.warn("parameter listener error:", e);
           }
         }
       }
@@ -559,7 +564,7 @@ export class FoxgloveWsClient {
 
       const targetPort = config.targetPort ?? ROS_PORTS.FOXGLOVE_BRIDGE;
 
-      console.log(`[FoxgloveWsClient] Creating proxy connection to ${proxyUrl} for node ${config.nodeId}:${targetPort}`);
+      this.logger.debug(`Creating proxy connection to ${proxyUrl} for node ${config.nodeId}:${targetPort}`);
 
       // Create the proxy client
       this.proxyClient = new ProxyWebSocketClient(
@@ -572,10 +577,10 @@ export class FoxgloveWsClient {
         },
         {
           onStateChange: (state) => {
-            console.log(`[FoxgloveWsClient] Proxy state: ${state}`);
+            this.logger.debug(`Proxy state: ${state}`);
           },
           onLoginFailed: (response) => {
-            console.error(`[FoxgloveWsClient] Proxy login failed: ${response.message}`);
+            this.logger.error(`Proxy login failed: ${response.message}`);
           },
         }
       );
@@ -729,7 +734,7 @@ export class FoxgloveWsClient {
     if (!this.isOpenFlag) return;
 
     for (const topic of Array.from(this.pendingSubscriptions)) {
-      console.log("[FoxgloveWsClient] Processing pending subscription to ", topic)
+      this.logger.debug("Processing pending subscription to ", topic)
       const chanInfo = this.channelsByTopic.get(topic);
       if (!chanInfo) continue;
 
@@ -775,8 +780,8 @@ export class FoxgloveWsClient {
       try {
         this.publish(topic, schemaName, msg);
       } catch (err) {
-        console.error(
-          `[FoxgloveWsClient] Failed to publish setup message for '${topic}' (${schemaName})`,
+        this.logger.error(
+          `Failed to publish setup message for '${topic}' (${schemaName})`,
           err,
         );
       }
@@ -789,7 +794,7 @@ export class FoxgloveWsClient {
    * Calls are re-attempted after services are advertised.
    */
   public registerSetupServiceCall(request: ServiceCallRequest) {
-    console.log("[FoxgloveWsClient] Registarting startup service call ", request);
+    this.logger.debug("Registarting startup service call ", request);
     this.setupServiceCalls.push(request);
     // If already open, try immediately (will throw if service isn't up yet; swallow)
     if (this.isOpenFlag) {
@@ -797,7 +802,7 @@ export class FoxgloveWsClient {
         this.callService(request);
       }
     } else {
-      console.log(`[FoxgloveWsClient] queueing startup service call :`, request)
+      this.logger.debug(`queueing startup service call :`, request)
     }
   }
 
@@ -813,11 +818,11 @@ export class FoxgloveWsClient {
   }
 
   private async processSetupServiceCalls() {
-    console.log("[FoxgloveWsClient] Processing startup service calls")
+    this.logger.debug("[FoxgloveWsClient] Processing startup service calls")
 
     if (!this.isOpenFlag || this.setupServiceCalls.length === 0) return;
     if (!this.areStartupServicesReady()) {
-      console.log(`[FoxgloveWsClient] setup waiting for all startup services to be available.`);
+      this.logger.debug(`[FoxgloveWsClient] setup waiting for all startup services to be available.`);
       return
     }
     for (const request of this.setupServiceCalls) {
@@ -825,7 +830,7 @@ export class FoxgloveWsClient {
         await this.callService(request);
       } catch (err) {
         // Service may not be advertised yet; ignore and rely on next attempt after advertiseServices
-        console.warn(`[FoxgloveWsClient] setup service call deferred: ${request.serviceName}`, err instanceof Error ? err.message : err);
+        this.logger.warn(`[FoxgloveWsClient] setup service call deferred: ${request.serviceName}`, err instanceof Error ? err.message : err);
       }
     }
   }
@@ -890,8 +895,8 @@ export class FoxgloveWsClient {
     if (!w) {
       const built = this.buildRos2WriterFor(schemaName);
       if (!built) {
-        console.error(
-          `[FoxgloveWsClient] Cannot publish on '${topic}' (${schemaName}): no ROS2 message definition found`,
+        this.logger.error(
+          `Cannot publish on '${topic}' (${schemaName}): no ROS2 message definition found`,
         );
         return;
       }
@@ -903,10 +908,10 @@ export class FoxgloveWsClient {
       const bytes = w.writeMessage(msg);
       this.client.sendMessage(id, bytes);
     } catch (err) {
-      console.error(
-        `[FoxgloveWsClient] Failed to serialize message for '${topic}' (${schemaName})`,
-        err,
-      );
+        this.logger.error(
+          `Failed to serialize message for '${topic}' (${schemaName})`,
+          err,
+        );
     }
   }
 
@@ -949,7 +954,7 @@ export class FoxgloveWsClient {
       throw new Error(`Service '${serviceName}' uses unsupported encoding (only 'cdr' supported).`);
     }
 
-    console.log("[FoxgloveWsClient] Sending service call to ", serviceName);
+    this.logger.debug("[FoxgloveWsClient] Sending service call to ", serviceName);
 
     const callId = this.nextServiceCallId++;
     const payload: ServiceCallPayload = {
@@ -1002,7 +1007,7 @@ export class FoxgloveWsClient {
    * Queued sets will be re-applied on reconnect once parameters are fetched again.
    */
   public registerSetupParameterSet(name: string, value: any) {
-    console.log("[FoxgloveWsClient] Registering startup parameter set ", { name, value });
+    this.logger.debug("[FoxgloveWsClient] Registering startup parameter set ", { name, value });
     this.setupParameterSets.push({ name, value });
     // If we are already connected and types are known for this param, try processing now.
     if (this.isOpenFlag && this.areStartupParametersReady()) {
@@ -1014,7 +1019,7 @@ export class FoxgloveWsClient {
    * Immediately set a parameter on the server. Requires parameter type to be known.
    */
   public setParameter(name: string, value: any) {
-    console.log(`[FoxgloveWsClient] setting ROS param ${name} to `, value);
+    this.logger.debug(`[FoxgloveWsClient] setting ROS param ${name} to `, value);
 
     if (!this.serverCapabilities.includes(ServerCapability.parameters)) {
       throw new Error("Server does not support parameters capability");
@@ -1046,9 +1051,9 @@ export class FoxgloveWsClient {
       );
       // Optimistic local cache update
       this.parameters.set(name, value);
-      console.log(`[FoxgloveWsClient] setParameter sent: ${name}`);
+      this.logger.debug(`[FoxgloveWsClient] setParameter sent: ${name}`);
     } catch (err) {
-      console.error(`[FoxgloveWsClient] setParameter failed: ${name}`, err);
+      this.logger.error(`[FoxgloveWsClient] setParameter failed: ${name}`, err);
       throw err;
     }
   }
@@ -1068,16 +1073,16 @@ export class FoxgloveWsClient {
   processSetupParameterSets() {
     if (!this.isOpenFlag || this.setupParameterSets.length === 0) return;
     if (!this.areStartupParametersReady()) {
-      console.log(`[FoxgloveWsClient] setup parameters waiting for server parameter list/types.`);
+      this.logger.debug(`[FoxgloveWsClient] setup parameters waiting for server parameter list/types.`);
       return;
     }
 
-    console.log("[FoxgloveWsClient] Processing startup parameter sets ", this.setupParameterSets);
+    this.logger.debug("[FoxgloveWsClient] Processing startup parameter sets ", this.setupParameterSets);
     for (const { name, value } of this.setupParameterSets) {
       try {
         this.setParameter(name, value);
       } catch (err) {
-        console.warn(`[FoxgloveWsClient] setup parameter set deferred: ${name}`, err instanceof Error ? err.message : err);
+        this.logger.warn(`[FoxgloveWsClient] setup parameter set deferred: ${name}`, err instanceof Error ? err.message : err);
       }
     }
   }
