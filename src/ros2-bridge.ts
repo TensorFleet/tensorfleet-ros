@@ -451,6 +451,10 @@ export class ROS2Bridge {
     ];
   }
 
+  getAvailableServices(): Array<{ service: string; type: string }> {
+    return this.client?.getAvailableServices() ?? [];
+  }
+
   /** Generic Foxglove service call (requires FoxgloveWsClient service support). */
   async callService<T = any>(name: string, request: any): Promise<T> {
     if (!this.serverInfoReady) throw new Error("callService() before connect");

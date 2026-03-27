@@ -1175,4 +1175,15 @@ export class FoxgloveWsClient {
   getTopicType(topic: string): string | undefined {
     return this.channelsByTopic.get(topic)?.channel.schemaName;
   }
+
+  getAvailableServices(): Array<{ service: string; type: string }> {
+    const services: Array<{ service: string; type: string }> = [];
+    for (const [name, resolved] of this.servicesByName.entries()) {
+      services.push({
+        service: name,
+        type: resolved.service.type
+      });
+    }
+    return services;
+  }
 }
