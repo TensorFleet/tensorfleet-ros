@@ -91,13 +91,14 @@ export class ROS2Bridge {
       this.serverInfoResolver = resolve;
     });
 
-    // Use provided settings or fall back to window globals
-    const proxyUrl = settings?.proxyUrl ?? (window as any).TENSORFLEET_PROXY_URL;
-    const vmManagerUrl = settings?.vmManagerUrl ?? (window as any).TENSORFLEET_VM_MANAGER_URL;
-    const nodeId = settings?.nodeId ?? (window as any).TENSORFLEET_NODE_ID;
-    const token = settings?.token ?? (window as any).TENSORFLEET_JWT;
+    // Use provided settings or fall back to globalThis globals
+    const proxyUrl = settings?.proxyUrl ?? (globalThis as any).TENSORFLEET_PROXY_URL;
+    const vmManagerUrl = settings?.vmManagerUrl ?? (globalThis as any).TENSORFLEET_VM_MANAGER_URL;
+    const nodeId = settings?.nodeId ?? (globalThis as any).TENSORFLEET_NODE_ID;
+    const token = settings?.token ?? (globalThis as any).TENSORFLEET_JWT;
     const port = settings?.targetPort ?? targetPort ?? ROS_PORTS.FOXGLOVE_BRIDGE;
-    const useProxy = settings?.useProxy ?? (window as any).TENSORFLEET_USE_PROXY ?? true;
+    // Use || instead of ?? for useProxy since empty string is falsy but not null/undefined
+    const useProxy = (settings?.useProxy as boolean | undefined) || (globalThis as any).TENSORFLEET_USE_PROXY || true;
 
     // Store a copy of the connection settings (not reference)
     this.connectionSettings = {
@@ -249,6 +250,11 @@ export class ROS2Bridge {
 
   /** Update connection settings and reconnect if they changed. */
   updateConnectionSettings(settings: ConnectionSettings) {
+    // Only attempt to connect if we have a token (authentication required for proxy mode)
+    if (!settings.token) {
+      return;
+    }
+
     const settingsChanged =
       !this.connectionSettings ||
       this.connectionSettings.proxyUrl !== settings.proxyUrl ||
@@ -896,13 +902,19 @@ export class ROS2Bridge {
     if (this.settingsCheckTimer) clearInterval(this.settingsCheckTimer);
     this.settingsCheckTimer = setInterval(() => {
       const currentSettings: ConnectionSettings = {
-        useProxy: (window as any).TENSORFLEET_USE_PROXY || '',
-        proxyUrl: (window as any).TENSORFLEET_PROXY_URL || '',
-        vmManagerUrl: (window as any).TENSORFLEET_VM_MANAGER_URL || '',
-        nodeId: (window as any).TENSORFLEET_NODE_ID || '',
-        token: (window as any).TENSORFLEET_JWT || '',
-        targetPort: (window as any).TENSORFLEET_TARGET_PORT || 8765,
+        useProxy: (globalThis as any).TENSORFLEET_USE_PROXY || '',
+        proxyUrl: (globalThis as any).TENSORFLEET_PROXY_URL || '',
+        vmManagerUrl: (globalThis as any).TENSORFLEET_VM_MANAGER_URL || '',
+        nodeId: (globalThis as any).TENSORFLEET_NODE_ID || '',
+        token: (globalThis as any).TENSORFLEET_JWT || '',
+        targetPort: (globalThis as any).TENSORFLEET_TARGET_PORT || 8765,
       };
+      logger.debug('[ROS2Bridge] Settings watcher tick', {
+        tokenPreview: currentSettings.token ? `${currentSettings.token.slice(0, 8)}…` : undefined,
+        proxyUrl: currentSettings.proxyUrl || undefined,
+        vmManagerUrl: currentSettings.vmManagerUrl || undefined,
+        nodeId: currentSettings.nodeId || undefined,
+      });
       this.updateConnectionSettings(currentSettings);
     }, 1000); // check every second
   }
@@ -917,17 +929,19 @@ export class ROS2Bridge {
 
 export const ros2Bridge: ROS2BridgeApi = new ROS2Bridge();
 
-// Auto-connect on load
-if (typeof window !== 'undefined') {
-  (ros2Bridge as any).connect();
-} else {
-  // Wait for window to be defined before connecting
-  const checkWindowAndConnect = () => {
-    if (typeof window !== 'undefined') {
-      (ros2Bridge as any).connect();
-    } else {
-      setTimeout(checkWindowAndConnect, 100);
-    }
-  };
-  checkWindowAndConnect();
+// Auto-connect on load - but only if token is already available.
+// Otherwise, the settings watcher will detect when token becomes available
+// and trigger the connection via updateConnectionSettings.
+function tryAutoConnect() {
+  const token = (globalThis as any).TENSORFLEET_JWT;
+  const proxyUrl = (globalThis as any).TENSORFLEET_PROXY_URL;
+  const vmManagerUrl = (globalThis as any).TENSORFLEET_VM_MANAGER_URL;
+  
+  // Only auto-connect if we have the required settings
+  if (token && (proxyUrl || vmManagerUrl)) {
+    (ros2Bridge as any).connect();
+  }
 }
+
+// Try to connect immediately if globals are already set
+tryAutoConnect();
