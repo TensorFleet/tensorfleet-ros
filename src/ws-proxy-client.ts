@@ -76,7 +76,7 @@ export class ProxyWebSocketClient {
   private state: ProxyConnectionState = 'disconnected';
   private sessionId: string | null = null;
   private messageQueue: (ArrayBuffer | string)[] = [];
-  private reconnectTimer: number | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
@@ -89,7 +89,7 @@ export class ProxyWebSocketClient {
   constructor(config: ProxyConnectionConfig, events: ProxyClientEvents = {}) {
     this.config = config;
     this.events = events;
-    this.WSConstructor = (window.OriginalWebSocket ?? WebSocket) as typeof WebSocket;
+    this.WSConstructor = ((globalThis as any).OriginalWebSocket ?? WebSocket) as typeof WebSocket;
     this.logger = new TensorfleetLogger('ProxyWebSocketClient');
   }
 
@@ -120,7 +120,7 @@ export class ProxyWebSocketClient {
 
     try {
       // Use OriginalWebSocket if available (e.g., when WebSocket is patched by extension)
-      this.WSConstructor = (window.OriginalWebSocket ?? WebSocket) as typeof WebSocket;
+      this.WSConstructor = ((globalThis as any).OriginalWebSocket ?? WebSocket) as typeof WebSocket;
 
       // Connect with optional subprotocols
       this.ws = this.config.subprotocols?.length
@@ -357,7 +357,7 @@ export class ProxyWebSocketClient {
       `Scheduling reconnect attempt ${this.reconnectAttempts} in ${delay}ms`,
     );
 
-    this.reconnectTimer = window.setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
@@ -371,7 +371,7 @@ export class ProxyWebSocketClient {
 export function createProxyWebSocket(config: ProxyConnectionConfig): WebSocket {
   const proxyClient = new ProxyWebSocketClient(config);
 
-  const WSConstructor = (window.OriginalWebSocket ?? WebSocket) as typeof WebSocket;
+  const WSConstructor = ((globalThis as any).OriginalWebSocket ?? WebSocket) as typeof WebSocket;
 
   // Create a mock WebSocket object that delegates to the proxy client
   // This is a simplified shim - for full compatibility, use the ProxyWebSocketClient directly

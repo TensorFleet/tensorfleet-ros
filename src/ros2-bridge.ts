@@ -111,7 +111,7 @@ export class ROS2Bridge {
     };
 
     if (!proxyUrl && !vmManagerUrl) {
-      logger.error("Missing proxy URL for vm-manager WebSocket proxy. Expected window.TENSORFLEET_PROXY_URL or window.TENSORFLEET_VM_MANAGER_URL to be set in the webview HTML.", {
+      logger.error("Missing proxy URL for vm-manager WebSocket proxy. Expected globalThis.TENSORFLEET_PROXY_URL or globalThis.TENSORFLEET_VM_MANAGER_URL to be set.", {
         proxyUrl,
         vmManagerUrl,
       });

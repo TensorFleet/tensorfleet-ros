@@ -1136,7 +1136,7 @@ export class FoxgloveWsClient {
     const namesKey = normalized.slice().sort().join("|");
 
     return await new Promise<Map<string, unknown>>((resolve, reject) => {
-      const t = window.setTimeout(() => {
+      const t = setTimeout(() => {
         this.pendingParamReads.delete(requestId);
         reject(new Error(`getParameters timeout (id=${requestId}, names=${JSON.stringify(normalized)})`));
       }, timeoutMs);
@@ -1144,11 +1144,11 @@ export class FoxgloveWsClient {
       this.pendingParamReads.set(requestId, {
         namesKey,
         resolve: (vals) => {
-          clearTimeout(t);
+          clearTimeout(t!);
           resolve(vals);
         },
         reject: (err) => {
-          clearTimeout(t);
+          clearTimeout(t!);
           reject(err);
         },
       });
