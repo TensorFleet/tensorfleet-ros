@@ -14,6 +14,7 @@ import { ROS_PORTS } from "./ws-proxy-client";
 import * as RosTypes from "tensorfleet-util/ros/ros-types";
 import { ROS2BridgeApi } from "tensorfleet-util/ros/ros-bridge-api";
 import { TensorfleetLogger } from "tensorfleet-util/logger";
+import { getConfig } from "tensorfleet-util";
 
 // Create logger instance for ROS package
 const logger = new TensorfleetLogger('ROS');
@@ -91,14 +92,14 @@ export class ROS2Bridge {
       this.serverInfoResolver = resolve;
     });
 
-    // Use provided settings or fall back to globalThis globals
-    const proxyUrl = settings?.proxyUrl ?? (globalThis as any).TENSORFLEET_PROXY_URL;
-    const vmManagerUrl = settings?.vmManagerUrl ?? (globalThis as any).TENSORFLEET_VM_MANAGER_URL;
-    const nodeId = settings?.nodeId ?? (globalThis as any).TENSORFLEET_NODE_ID;
-    const token = settings?.token ?? (globalThis as any).TENSORFLEET_JWT;
+    // Use provided settings or fall back to config store
+    const proxyUrl = settings?.proxyUrl ?? getConfig<string>("TENSORFLEET_PROXY_URL");
+    const vmManagerUrl = settings?.vmManagerUrl ?? getConfig<string>("TENSORFLEET_VM_MANAGER_URL");
+    const nodeId = settings?.nodeId ?? getConfig<string>("TENSORFLEET_NODE_ID");
+    const token = settings?.token ?? getConfig<string>("TENSORFLEET_JWT");
     const port = settings?.targetPort ?? targetPort ?? ROS_PORTS.FOXGLOVE_BRIDGE;
     // Use || instead of ?? for useProxy since empty string is falsy but not null/undefined
-    const useProxy = (settings?.useProxy as boolean | undefined) || (globalThis as any).TENSORFLEET_USE_PROXY || true;
+    const useProxy = (settings?.useProxy as boolean | undefined) || getConfig<boolean>("TENSORFLEET_USE_PROXY") || true;
 
     // Store a copy of the connection settings (not reference)
     this.connectionSettings = {
@@ -111,7 +112,7 @@ export class ROS2Bridge {
     };
 
     if (!proxyUrl && !vmManagerUrl) {
-      logger.error("Missing proxy URL for vm-manager WebSocket proxy. Expected globalThis.TENSORFLEET_PROXY_URL or globalThis.TENSORFLEET_VM_MANAGER_URL to be set.", {
+      logger.error("Missing proxy URL for vm-manager WebSocket proxy. Expected TENSORFLEET_PROXY_URL or TENSORFLEET_VM_MANAGER_URL to be set.", {
         proxyUrl,
         vmManagerUrl,
       });
@@ -902,12 +903,12 @@ export class ROS2Bridge {
     if (this.settingsCheckTimer) clearInterval(this.settingsCheckTimer);
     this.settingsCheckTimer = setInterval(() => {
       const currentSettings: ConnectionSettings = {
-        useProxy: (globalThis as any).TENSORFLEET_USE_PROXY || '',
-        proxyUrl: (globalThis as any).TENSORFLEET_PROXY_URL || '',
-        vmManagerUrl: (globalThis as any).TENSORFLEET_VM_MANAGER_URL || '',
-        nodeId: (globalThis as any).TENSORFLEET_NODE_ID || '',
-        token: (globalThis as any).TENSORFLEET_JWT || '',
-        targetPort: (globalThis as any).TENSORFLEET_TARGET_PORT || 8765,
+        useProxy: getConfig<boolean>("TENSORFLEET_USE_PROXY") || false,
+        proxyUrl: getConfig<string>("TENSORFLEET_PROXY_URL") || '',
+        vmManagerUrl: getConfig<string>("TENSORFLEET_VM_MANAGER_URL") || '',
+        nodeId: getConfig<string>("TENSORFLEET_NODE_ID") || '',
+        token: getConfig<string>("TENSORFLEET_JWT") || '',
+        targetPort: getConfig<number>("TENSORFLEET_TARGET_PORT") || 8765,
       };
       logger.debug('[ROS2Bridge] Settings watcher tick', {
         tokenPreview: currentSettings.token ? `${currentSettings.token.slice(0, 8)}…` : undefined,
@@ -933,9 +934,9 @@ export const ros2Bridge: ROS2BridgeApi = new ROS2Bridge();
 // Otherwise, the settings watcher will detect when token becomes available
 // and trigger the connection via updateConnectionSettings.
 function tryAutoConnect() {
-  const token = (globalThis as any).TENSORFLEET_JWT;
-  const proxyUrl = (globalThis as any).TENSORFLEET_PROXY_URL;
-  const vmManagerUrl = (globalThis as any).TENSORFLEET_VM_MANAGER_URL;
+  const token = getConfig<string>("TENSORFLEET_JWT");
+  const proxyUrl = getConfig<string>("TENSORFLEET_PROXY_URL");
+  const vmManagerUrl = getConfig<string>("TENSORFLEET_VM_MANAGER_URL");
   
   // Only auto-connect if we have the required settings
   if (token && (proxyUrl || vmManagerUrl)) {
