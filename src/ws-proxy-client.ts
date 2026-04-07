@@ -1,3 +1,5 @@
+import { TensorfleetLogger } from "tensorfleet-util/logger";
+
 /**
  * WebSocket Proxy Client
  *
@@ -74,7 +76,7 @@ export class ProxyWebSocketClient {
   private state: ProxyConnectionState = 'disconnected';
   private sessionId: string | null = null;
   private messageQueue: (ArrayBuffer | string)[] = [];
-  private reconnectTimer: number | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
@@ -82,11 +84,13 @@ export class ProxyWebSocketClient {
   // Keep a reference to the *actual* constructor used, so global WebSocket patches
   // can't break OPEN/CONNECTING constants.
   private WSConstructor: typeof WebSocket;
+  private logger: TensorfleetLogger;
 
   constructor(config: ProxyConnectionConfig, events: ProxyClientEvents = {}) {
     this.config = config;
     this.events = events;
-    this.WSConstructor = (window.OriginalWebSocket ?? WebSocket) as typeof WebSocket;
+    this.WSConstructor = ((globalThis as any).OriginalWebSocket ?? WebSocket) as typeof WebSocket;
+    this.logger = new TensorfleetLogger('ProxyWebSocketClient');
   }
 
   /**
@@ -112,11 +116,11 @@ export class ProxyWebSocketClient {
     }
 
     this.setState('connecting');
-    console.log('[ProxyWsClient] Connecting to proxy:', this.config.proxyUrl);
+    this.logger.debug('Connecting to proxy:', this.config.proxyUrl);
 
     try {
       // Use OriginalWebSocket if available (e.g., when WebSocket is patched by extension)
-      this.WSConstructor = (window.OriginalWebSocket ?? WebSocket) as typeof WebSocket;
+      this.WSConstructor = ((globalThis as any).OriginalWebSocket ?? WebSocket) as typeof WebSocket;
 
       // Connect with optional subprotocols
       this.ws = this.config.subprotocols?.length
@@ -126,7 +130,7 @@ export class ProxyWebSocketClient {
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onopen = () => {
-        console.log('[ProxyWsClient] WebSocket connected, sending login...');
+        this.logger.debug('WebSocket connected, sending login...');
         this.setState('authenticating');
         this.sendLogin();
       };
@@ -136,7 +140,7 @@ export class ProxyWebSocketClient {
       };
 
       this.ws.onclose = (event) => {
-        console.log('[ProxyWsClient] WebSocket closed:', event.code, event.reason);
+        this.logger.debug('WebSocket closed:', event.code, event.reason);
         this.setState('disconnected');
         this.events?.onClose?.(event);
 
@@ -147,12 +151,12 @@ export class ProxyWebSocketClient {
       };
 
       this.ws.onerror = (event) => {
-        console.error('[ProxyWsClient] WebSocket error:', event);
+        this.logger.error('WebSocket error:', event);
         this.setState('error');
         this.events?.onError?.(event);
       };
     } catch (error) {
-      console.error('[ProxyWsClient] Failed to create WebSocket:', error);
+      this.logger.error('Failed to create WebSocket:', error);
       this.setState('error');
       this.events?.onError?.(error instanceof Error ? error : new Error(String(error)));
     }
@@ -186,14 +190,14 @@ export class ProxyWebSocketClient {
     if (this.state !== 'connected') {
       // Queue messages until connected
       this.messageQueue.push(data);
-      console.log('[ProxyWsClient] Message queued (not yet connected)');
+      this.logger.debug('Message queued (not yet connected)');
       return;
     }
 
     if (this.ws && this.ws.readyState === this.WSConstructor.OPEN) {
       this.ws.send(data);
     } else {
-      console.warn('[ProxyWsClient] WebSocket not ready, queuing message');
+      this.logger.warn('WebSocket not ready, queuing message');
       this.messageQueue.push(data);
     }
   }
@@ -253,7 +257,7 @@ export class ProxyWebSocketClient {
 
   private setState(state: ProxyConnectionState): void {
     if (this.state !== state) {
-      console.log(`[ProxyWsClient] State: ${this.state} -> ${state}`);
+      this.logger.debug(`State: ${this.state} -> ${state}`);
       this.state = state;
       this.events?.onStateChange?.(state);
     }
@@ -261,7 +265,7 @@ export class ProxyWebSocketClient {
 
   private sendLogin(): void {
     if (!this.ws || this.ws.readyState !== this.WSConstructor.OPEN) {
-      console.error('[ProxyWsClient] Cannot send login: WebSocket not open');
+      this.logger.error('Cannot send login: WebSocket not open');
       return;
     }
 
@@ -272,8 +276,8 @@ export class ProxyWebSocketClient {
       targetPort: this.config.targetPort,
     };
 
-    console.log(
-      '[ProxyWsClient] Sending login for node:',
+    this.logger.debug(
+      'Sending login for node:',
       this.config.nodeId,
       'port:',
       this.config.targetPort,
@@ -295,12 +299,12 @@ export class ProxyWebSocketClient {
             return;
           }
         } catch (e) {
-          console.warn('[ProxyWsClient] Failed to parse login response:', e);
+          this.logger.warn('Failed to parse login response:', e);
         }
       }
 
       // If we get non-login response while authenticating, something is wrong
-      console.warn('[ProxyWsClient] Received unexpected message while authenticating');
+      this.logger.warn('Received unexpected message while authenticating');
       return;
     }
 
@@ -310,7 +314,7 @@ export class ProxyWebSocketClient {
 
   private handleLoginResponse(response: LoginResponse): void {
     if (response.success) {
-      console.log('[ProxyWsClient] Login successful, session:', response.sessionId);
+      this.logger.debug('Login successful, session:', response.sessionId);
       this.sessionId = response.sessionId ?? null;
       this.setState('connected');
       this.reconnectAttempts = 0;
@@ -320,7 +324,7 @@ export class ProxyWebSocketClient {
       // Flush queued messages
       this.flushMessageQueue();
     } else {
-      console.error('[ProxyWsClient] Login failed:', response.message);
+      this.logger.error('Login failed:', response.message);
       this.setState('error');
       this.events?.onLoginFailed?.(response);
       this.events?.onError?.(new Error(response.message || 'Login failed'));
@@ -333,7 +337,7 @@ export class ProxyWebSocketClient {
   private flushMessageQueue(): void {
     if (this.messageQueue.length === 0) return;
 
-    console.log('[ProxyWsClient] Flushing', this.messageQueue.length, 'queued messages');
+    this.logger.debug('Flushing', this.messageQueue.length, 'queued messages');
 
     while (this.messageQueue.length > 0) {
       const msg = this.messageQueue.shift();
@@ -349,11 +353,11 @@ export class ProxyWebSocketClient {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
 
-    console.log(
-      `[ProxyWsClient] Scheduling reconnect attempt ${this.reconnectAttempts} in ${delay}ms`,
+    this.logger.debug(
+      `Scheduling reconnect attempt ${this.reconnectAttempts} in ${delay}ms`,
     );
 
-    this.reconnectTimer = window.setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
@@ -367,7 +371,7 @@ export class ProxyWebSocketClient {
 export function createProxyWebSocket(config: ProxyConnectionConfig): WebSocket {
   const proxyClient = new ProxyWebSocketClient(config);
 
-  const WSConstructor = (window.OriginalWebSocket ?? WebSocket) as typeof WebSocket;
+  const WSConstructor = ((globalThis as any).OriginalWebSocket ?? WebSocket) as typeof WebSocket;
 
   // Create a mock WebSocket object that delegates to the proxy client
   // This is a simplified shim - for full compatibility, use the ProxyWebSocketClient directly
