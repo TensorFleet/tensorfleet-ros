@@ -33,6 +33,7 @@
     "typescript": "^5.5.3"
   },
   "dependencies": {
+    "tensorfleet-auth": "workspace:*",
     "tensorfleet-util": "workspace:*",
     "@lichtblick/suite-base": "workspace:*"
   },

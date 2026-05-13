@@ -19,7 +19,7 @@ import {
   type TfGraphSnapshot,
 } from "tensorfleet-util/ros/ros-bridge-api";
 import { TensorfleetLogger } from "tensorfleet-util/logger";
-import { getConfig } from "tensorfleet-util";
+import { getConfig } from "tensorfleet-auth"; // TODO: Remove this dependency in the future
 
 // Create logger instance for ROS package
 const logger = new TensorfleetLogger('ROS');
