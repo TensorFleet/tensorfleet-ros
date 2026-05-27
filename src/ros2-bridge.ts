@@ -423,6 +423,7 @@ export class ROS2Bridge {
       if (set.size === 0) {
         this.messageHandlers.delete(topic);
         this.subscriptions.delete(topic);
+        this.latestMessages.delete(topic);
         this.client?.unsubscribe(topic);
       }
     }
