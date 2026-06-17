@@ -397,7 +397,7 @@ export class ROS2Bridge {
       return;
     }
 
-    window.setTimeout(() => {
+    globalThis.setTimeout(() => {
       const handlers = this.messageHandlers.get(topic);
       if (handlers?.has(handler)) {
         handler(message);
@@ -423,6 +423,7 @@ export class ROS2Bridge {
       if (set.size === 0) {
         this.messageHandlers.delete(topic);
         this.subscriptions.delete(topic);
+        this.latestMessages.delete(topic);
         this.client?.unsubscribe(topic);
       }
     }
@@ -556,10 +557,10 @@ export class ROS2Bridge {
    * - `suggested`: config-specific topics not yet confirmed on the wire
    *
    * Bridge noise (wall-clock republications, /out/* internals) is stripped from all groups.
-   * The VM config ID is read from `window.TENSORFLEET_VM_CONFIG_ID` injected by extension.ts.
+   * The VM config ID is read from `globalThis.TENSORFLEET_VM_CONFIG_ID` injected by extension.ts.
    */
   getImageTopicsGrouped(): { primary: Subscription[]; other: Subscription[]; suggested: Subscription[] } {
-    const vmConfigId = (typeof window !== 'undefined' ? (window as any).TENSORFLEET_VM_CONFIG_ID : '') ?? '';
+    const vmConfigId = ((globalThis as any).TENSORFLEET_VM_CONFIG_ID ?? '') as string;
     const configTopics = TOPICS_BY_VM_CONFIG[vmConfigId] ?? GENERIC_FALLBACKS;
     const configTopicSet = new Set(configTopics.map(t => t.topic));
 
