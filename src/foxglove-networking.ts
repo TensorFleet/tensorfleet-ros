@@ -11,7 +11,6 @@ import {
 import { TensorfleetLogger } from "tensorfleet-util/logger";
 import { parseChannel } from "@lichtblick/mcap-support";
 import { MessageWriter as Ros2MessageWriter } from "@lichtblick/rosmsg2-serialization";
-import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosDatatypesToMessageDefinition";
 import CommonRosTypes from "@lichtblick/rosmsg-msgs-common";
 import type { MessageDefinition } from "@lichtblick/message-definition";
 import {
@@ -21,7 +20,6 @@ import {
 } from "./ws-proxy-client";
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 
 type FoxgloveChannel = {
   id: ChannelId;
@@ -33,6 +31,7 @@ type FoxgloveChannel = {
 };
 
 type ParsedChannel = ReturnType<typeof parseChannel>;
+type RosDatatypes = Map<string, MessageDefinition>;
 
 interface ResolvedChannel {
   channel: FoxgloveChannel;
@@ -109,6 +108,48 @@ uint32 nanosec
 
 function hasSchemaText(schema: string | undefined): boolean {
   return typeof schema === "string" && schema.trim().length > 0;
+}
+
+function byteAt(data: Uint8Array, index: number): number {
+  return data[index] ?? 0;
+}
+
+function rosDatatypesToMessageDefinition(
+  datatypes: RosDatatypes,
+  rootDatatypeName: string,
+): MessageDefinition[] {
+  const result: MessageDefinition[] = [];
+  const seenDatatypeNames = new Set([rootDatatypeName]);
+  const datatypeNameStack = [rootDatatypeName];
+
+  while (datatypeNameStack.length > 0) {
+    const currentDatatypeName = datatypeNameStack.pop();
+    if (currentDatatypeName == undefined) {
+      throw new Error("Invariant violation - Array.pop() when length > 0");
+    }
+
+    const currentDatatype = datatypes.get(currentDatatypeName);
+    if (!currentDatatype) {
+      throw new Error(
+        `While searching datatypes for "${rootDatatypeName}", could not find datatype "${currentDatatypeName}"`,
+      );
+    }
+
+    result.push(
+      currentDatatypeName === rootDatatypeName
+        ? { definitions: currentDatatype.definitions }
+        : { name: currentDatatypeName, definitions: currentDatatype.definitions },
+    );
+
+    for (const field of currentDatatype.definitions) {
+      if (field.isComplex === true && !seenDatatypeNames.has(field.type)) {
+        datatypeNameStack.push(field.type);
+        seenDatatypeNames.add(field.type);
+      }
+    }
+  }
+
+  return result;
 }
 
 function createSendGoalRequestSchema(actionBaseType: string): ServiceSchemaOverride {
@@ -249,7 +290,6 @@ export class FoxgloveWsClient {
   // Capabilities
   private supportedEncodings: string[] | undefined;
   private serverCapabilities: string[] = [];
-  private rosProfile: "ros2" | undefined;
 
   // Datatypes cache for building writers (topics)
   private datatypesFromChannels: Map<string, MessageDefinition> = new Map();
@@ -348,11 +388,6 @@ export class FoxgloveWsClient {
 
       if (Array.isArray(event.capabilities)) {
         this.logger.debug("Got server capabilities", event.capabilities);
-      }
-
-      const maybeRosDistro = event.metadata?.["ROS_DISTRO"];
-      if (maybeRosDistro) {
-        this.rosProfile = "ros2";
       }
 
       // Prefer "cdr" for ROS2 services
@@ -798,7 +833,7 @@ export class FoxgloveWsClient {
         proxyClient.send(normalized);
       },
 
-      close(code?: number, reason?: string) {
+      close() {
         readyState = WebSocket.CLOSING;
         proxyClient.close();
         readyState = WebSocket.CLOSED;
@@ -1173,7 +1208,7 @@ export class FoxgloveWsClient {
     if (value instanceof Uint8Array) {
       let s = "";
       for (let i = 0; i < value.length; i++) {
-        s += String.fromCharCode(value[i]);
+        s += String.fromCharCode(byteAt(value, i));
       }
       param.value = btoa(s);
       param.type = "byte_array";

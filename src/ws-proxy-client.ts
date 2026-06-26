@@ -392,7 +392,7 @@ export function createProxyWebSocket(config: ProxyConnectionConfig): WebSocket {
       }
     },
 
-    close(code?: number, reason?: string) {
+    close() {
       proxyClient.close();
     },
 
