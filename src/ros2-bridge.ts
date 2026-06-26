@@ -27,6 +27,10 @@ const logger = new TensorfleetLogger('ROS');
 // (optional but nice) local type for the rosapi response
 type RosapiNodesResponse = { nodes: string[] };
 
+function byteAt(data: Uint8Array, index: number): number {
+  return data[index] ?? 0;
+}
+
 export type ConnectionMode = "foxglove";
 
 interface ConnectionSettings {
@@ -872,9 +876,9 @@ export class ROS2Bridge {
     switch ((encoding || "").toLowerCase()) {
       case "rgb8":
         for (let i = 0; i < pixelCount; i++) {
-          rgba[i * 4] = data[i * 3];     // R
-          rgba[i * 4 + 1] = data[i * 3 + 1]; // G
-          rgba[i * 4 + 2] = data[i * 3 + 2]; // B
+          rgba[i * 4] = byteAt(data, i * 3);     // R
+          rgba[i * 4 + 1] = byteAt(data, i * 3 + 1); // G
+          rgba[i * 4 + 2] = byteAt(data, i * 3 + 2); // B
           rgba[i * 4 + 3] = 255;         // A
         }
         break;
@@ -885,25 +889,25 @@ export class ROS2Bridge {
 
       case "bgr8":
         for (let i = 0; i < pixelCount; i++) {
-          rgba[i * 4] = data[i * 3 + 2];     // R (from B)
-          rgba[i * 4 + 1] = data[i * 3 + 1]; // G
-          rgba[i * 4 + 2] = data[i * 3];     // B (from R)
+          rgba[i * 4] = byteAt(data, i * 3 + 2);     // R (from B)
+          rgba[i * 4 + 1] = byteAt(data, i * 3 + 1); // G
+          rgba[i * 4 + 2] = byteAt(data, i * 3);     // B (from R)
           rgba[i * 4 + 3] = 255;             // A
         }
         break;
 
       case "bgra8":
         for (let i = 0; i < pixelCount; i++) {
-          rgba[i * 4] = data[i * 4 + 2];     // R (from B)
-          rgba[i * 4 + 1] = data[i * 4 + 1]; // G
-          rgba[i * 4 + 2] = data[i * 4];     // B (from R)
-          rgba[i * 4 + 3] = data[i * 4 + 3]; // A
+          rgba[i * 4] = byteAt(data, i * 4 + 2);     // R (from B)
+          rgba[i * 4 + 1] = byteAt(data, i * 4 + 1); // G
+          rgba[i * 4 + 2] = byteAt(data, i * 4);     // B (from R)
+          rgba[i * 4 + 3] = byteAt(data, i * 4 + 3); // A
         }
         break;
 
       case "mono8":
         for (let i = 0; i < pixelCount; i++) {
-          const gray = data[i];
+          const gray = byteAt(data, i);
           rgba[i * 4] = gray;
           rgba[i * 4 + 1] = gray;
           rgba[i * 4 + 2] = gray;
@@ -914,7 +918,7 @@ export class ROS2Bridge {
       case "mono16":
         for (let i = 0; i < pixelCount; i++) {
           // Convert 16-bit to 8-bit by taking high byte
-          const gray = data[i * 2 + 1];
+          const gray = byteAt(data, i * 2 + 1);
           rgba[i * 4] = gray;
           rgba[i * 4 + 1] = gray;
           rgba[i * 4 + 2] = gray;
@@ -1124,12 +1128,6 @@ export class ROS2Bridge {
     }, 1000); // check every second
   }
 
-  private _stopSettingsWatcher() {
-    if (this.settingsCheckTimer) {
-      clearInterval(this.settingsCheckTimer);
-      this.settingsCheckTimer = null;
-    }
-  }
 }
 
 export const ros2Bridge: ROS2BridgeApi = new ROS2Bridge();
